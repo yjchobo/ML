@@ -156,7 +156,7 @@ library("vcd")
 assoc(pistonrings)
 ```
 
-Standard Chi-squared test
+Run Standard Chi-squared test
 ```{r pr_xs}
 chisq.test(pistonrings)
 ```
