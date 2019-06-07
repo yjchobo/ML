@@ -150,7 +150,7 @@ assessing independence is simply the sum, over all the cells in the table, of th
 chisq.test(pistonrings)$residuals
 ```
 
-Association plot of the residuals
+Association plot of the residual
 ```{r pr_xsr_plot}
 library("vcd")
 assoc(pistonrings)
