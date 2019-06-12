@@ -1,0 +1,4 @@
+SELECT DATEADD(qq, DATEDIFF(qq, 0, GETDATE()) - 1, 0)-- First day of last quarter
+SELECT DATEADD(dd, -1, DATEADD(qq, DATEDIFF(qq, 0, GETDATE()), 0))-- Last day of last quarter
+SELECT DATEADD(qq, DATEDIFF(qq, 0, GETDATE()) + 1, 0)-- First day of Next quarter
+SELECT DATEADD (dd, -1, DATEADD(qq, DATEDIFF(qq, 0, GETDATE()) +2, 0))-- Last day of Next quarter
