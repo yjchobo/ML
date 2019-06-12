@@ -1,2 +1,2 @@
 # Yc Portfolio
-Simple inference: http://rpubs.com/yc_rpubs/502869
+Inference 1: http://rpubs.com/yc_rpubs/502869
