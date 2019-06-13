@@ -1,10 +1,10 @@
 ###setup
 #setwd("C:/Users/yocho/Documents/young_cho_non_work/airbnb")
-#setwd("C:/Users/YC/portfolio/case_study/airbnb")
-setwd("C:/Users/yocho/portfolio/case_study/airbnb")
+setwd("C:/Users/YC/portfolio/case_study/airbnb")
+#setwd("C:/Users/yocho/portfolio/case_study/airbnb")
 
 
-packages.required = c("sqldf","ggplot2","dplyr", "lubridate","corrplot","rpart","rpart.plot","party","randomforest")
+packages.required = c("sqldf","ggplot2","dplyr", "lubridate","corrplot","rpart","rpart.plot","party","randomForest","regclass","ggpubr","caret","e1071","cluster","tidyverse")
 #install.packages(packages.required)
 lapply(packages.required, library, character.only = TRUE)
 
@@ -53,7 +53,7 @@ listings$total_reviews[listings$total_reviews < 0] <- 0
 
 
 
-###Data exploration
+###Inquiry funnel Data exploration
 
 t1 <- sqldf("select count(*) as count_all, count(distinct id_guest_anon) as count_uniq_guest_id, count(distinct id_host_anon)
              as count_uniq_host_id, count(distinct id_listing_anon) as count_uniq_listing_id from contacts")
@@ -142,8 +142,8 @@ t12
 #calculate attributes for classification model
 
 p1 <- sqldf('select
-              -- target variable
-              (case when c.ts_booking_at_posix is null then 0 else 1 end) as target_cat,
+              -- target variables
+              (case when c.ts_booking_at_posix is null then 0 else 1 end) as Resulted_Successful_Booking,
               (case when c.ts_booking_at_posix is null then null else ts_booking_at_posix - ts_interaction_first_posix end) as target_num,              
 
               -- reservation related attributes
@@ -152,6 +152,7 @@ p1 <- sqldf('select
               c.days_from_first_contact_to_first_checkin,
               c.dow_checkin,
               c.moy_checkin,
+              c.contact_channel_first,
               
               -- guest"s attribute
               g.country as guest_country,
@@ -172,6 +173,7 @@ p1 <- sqldf('select
               c.minute_from_first_reply_to_accept,
               c.minute_from_first_touch_to_reply
               
+              
              from contacts c
              left join users g on g.id_user_anon = c.id_guest_anon            -- guests
              left join users h on h.id_user_anon = c.id_host_anon             -- hosts
@@ -179,109 +181,334 @@ p1 <- sqldf('select
             
              ', method = "name__class")
 
-#turn discrete vars to factors before running
-dis_vars = c("dow_checkin","moy_checkin","guest_country","guest_user_stage_first","host_country","room_type","listing_neighborhood", "target_cat")
+#turn discrete vars to factors
+dis_vars = c("dow_checkin","moy_checkin","guest_country","guest_user_stage_first","host_country","room_type","listing_neighborhood", "Resulted_Successful_Booking","contact_channel_first")
 p1[dis_vars] <- lapply(p1[dis_vars],as.factor)
 
-
-p1_cl <- p1[, !(colnames(p1) %in% c("target_num"))]
-p1_reg <- p1[, !(colnames(p1) %in% c("target_cat"))]
-
-
-### classification
-
-#logistic regression
-cl_m1 = glm(target_cat ~ .,  family = binomial, data = p1_cl)
-summary(cl_m1)
-
-#decision tree
-#with only a handful of predictors coming out significant from log reg above
-cl_tree <- ctree(target_cat ~ ., data = p1_cl[c("target_cat","days_duration_requested_stay","m_guests",
-                                                "days_from_first_contact_to_first_checkin","dow_checkin",
-                                                "moy_checkin","room_type")])
-plot(cl_tree)
-
-cl_tree2 <- ctree(target_cat ~ ., data = p1_cl[c("target_cat","days_duration_requested_stay","m_guests",
-                                                "days_from_first_contact_to_first_checkin")])
-plot(cl_tree2, gp = gpar(fontsize = 8))
+#create separate dfs, one for classification and one for regression
+p1_cl <- p1[, !(colnames(p1) %in% c("target_num","guest_country","host_country","listing_neighborhood"))]
+#p1_reg <- p1[, !(colnames(p1) %in% c("Resulted_Successful_Booking","guest_country","host_country","listing_neighborhood"))]
 
 
+#split dfs based on contact_channel_first: contact_me, book_it, instant_book
+p1_cl_cm <- filter(p1_cl, contact_channel_first == "contact_me")
+p1_cl_bi <- filter(p1_cl, contact_channel_first == "book_it")
 
 
-cl_tree2_rp <- rpart(target_cat ~ ., method="class", data = p1_cl[c("target_cat","days_duration_requested_stay","m_guests",
-                                                 "days_from_first_contact_to_first_checkin")])
-
-printcp(cl_tree2_rp) # display the results 
-plotcp(cl_tree2_rp) # visualize cross-validation results 
-summary(cl_tree2_rp) # detailed summary of splits
-
-
-# Random Forest prediction of Kyphosis data
-pl_cl_rf <- p1_cl[, colSums(is.na(p1_cl)) == 0]
-pl_cl_rf <- pl_cl_rf[, !(colnames(pl_cl_rf) %in% c("listing_neighborhood"))]
-p1_cl_rf_fit <- randomForest(target_cat ~ .,  data=pl_cl_rf)
-print(p1_cl_rf_fit) # view results 
-varImpPlot(p1_cl_rf_fit, pch = 20, main = "Importance of Variables")
-
-
-
-# Predict rf
-# set seed
-set.seed(123)
 # create training and test sets
-inTrain <- caret::createDataPartition(y = p1_cl$target_cat, p = 0.8, list = FALSE)
-# subset
+set.seed(123)
+inTrain <- caret::createDataPartition(y = p1_cl$Resulted_Successful_Booking, p = 0.8, list = FALSE)
 p1_cl_training <- p1_cl[inTrain, ]
 p1_cl_testing <- p1_cl[-inTrain, ]
 
-predictions.rf <- predict(p1_cl_rf_fit, newdata = p1_cl_testing[, !(colnames(p1_cl_testing) %in% c("target_cat"))])
-confusionMatrix(predictions.rf, p1_cl_testing$target_cat)
+
+
+#split dfs based on contact_channel_first: contact_me, book_it, instant_book
+p1_cl_training_cm <- filter(p1_cl_training, contact_channel_first == "contact_me")
+p1_cl_training_cm <- p1_cl_training_cm[, !(colnames(p1_cl_training_cm) %in% c("contact_channel_first"))]
+
+p1_cl_training_bi <- filter(p1_cl_training, contact_channel_first == "book_it")
+p1_cl_training_bi <- p1_cl_training_bi[, !(colnames(p1_cl_training_bi) %in% c("contact_channel_first"))]
+
+p1_cl_testing_cm <- filter(p1_cl_testing, contact_channel_first == "contact_me")
+p1_cl_testing_cm <- p1_cl_testing_cm[, !(colnames(p1_cl_testing_cm) %in% c("contact_channel_first"))]
+
+p1_cl_testing_bi <- filter(p1_cl_testing, contact_channel_first == "book_it")
+p1_cl_testing_bi <- p1_cl_testing_bi[, !(colnames(p1_cl_testing_bi) %in% c("contact_channel_first"))]
 
 
 
 
-
-
-
-
-
-#conditional density plots
-layout(matrix(1:3, ncol = 3))
-cdplot(target_cat ~ days_duration_requested_stay, data = p1_cl)
-cdplot(target_cat ~ m_guests, data = p1_cl)
-cdplot(target_cat ~ dow_checkin, data = p1_cl)
-
-dow_checkinSat
-
-
-
-### regression
-reg_m1 = lm(target_num ~ ., data = p1_reg)
-summary(reg_m1)
-
-
+#######################################################################################################################################
+###contact me channel
 #EDA
-#all
-p2 <- sqldf('select target_cat, count(*) as count_all_inquiry
-              from p1
-              group by target_cat
-             ')
-p2
 
-p1_complete <- p1[complete.cases(p1), ]
-corrplot(cor(p1_complete[,c(2,3,4,5,9,12,15:18)], method = c("spearman")))
-
-
-
-
-
-
-
-
-
+#barplots for factor vars
+ggplot(data = p1_cl_cm,aes(x=m_guests,fill=Resulted_Successful_Booking))+geom_bar()
+ggplot(data = p1_cl_cm,aes(x=m_guests,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_cm,aes(x=dow_checkin,fill=Resulted_Successful_Booking))+geom_bar()
+ggplot(data = p1_cl_cm,aes(x=dow_checkin,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_cm,aes(x=moy_checkin,fill=Resulted_Successful_Booking))+geom_bar()
+ggplot(data = p1_cl_cm,aes(x=moy_checkin,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_cm,aes(x=contact_channel_first,fill=Resulted_Successful_Booking))+geom_bar()
+ggplot(data = p1_cl_cm,aes(x=contact_channel_first,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_cm,aes(x=guest_user_stage_first,fill=Resulted_Successful_Booking))+geom_bar()
+ggplot(data = p1_cl_cm,aes(x=guest_user_stage_first,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+#ggplot(data = p1_cl_cm,aes(x=host_country,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_cm,aes(x=host_country,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_cm,aes(x=room_type,fill=Resulted_Successful_Booking))+geom_bar()
+ggplot(data = p1_cl_cm,aes(x=room_type,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
 
 
+#boxplots for numeric vars against target
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=days_duration_requested_stay,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,30)
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=m_guests,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,30)
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=days_from_first_contact_to_first_checkin,fill=Resulted_Successful_Booking))+geom_boxplot()
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=guest_words_in_profile,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,100)
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=host_words_in_profile,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,100)
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=total_reviews,fill=Resulted_Successful_Booking))+geom_boxplot()
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=m_interactions,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,100)
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=minute_from_first_reply_to_accept,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,10080) #7days
+ggplot(data = p1_cl_cm,aes(x=Resulted_Successful_Booking,y=minute_from_first_touch_to_reply,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,5040)
 
-#clustering on hosty and guests and show stats per cluster
 
 
+
+
+### classification: 
+
+
+#logistic regression
+cl_m1 = glm(Resulted_Successful_Booking ~ .,  family = binomial(link = 'logit'), data = p1_cl_training_cm)
+summary(cl_m1)
+
+#top 10 by coeficients (increase in 1 unit's impact on the odds of an inquiry being a successful booking)
+sort(exp(coef(cl_m1)),decreasing = T)[1:10]
+
+#predict probability
+cl_m1.prob = predict(cl_m1, p1_cl_testing_cm, type="response")
+p1_cl_testing_cm.copy <- p1_cl_testing_cm
+p1_cl_testing_cm.copy$log_reg_prob = cl_m1.prob
+
+#predict class
+cl_m1.pred_class <- ifelse(cl_m1.prob > 0.5,1,0)
+p1_cl_testing_cm.copy$cl_m1.pred_class = cl_m1.pred_class
+
+
+#model performance
+#confusion matrix
+cm = data.frame(confusion_matrix(cl_m1,p1_cl_testing_cm.copy))
+TP = cm[2,2]
+FP = cm[1,2]
+FN = cm[2,1]
+TN = cm[1,1]
+TOTAL = cm[3,3]
+
+(TP + TN) / TOTAL #overall accuracy 0.8832442
+TP / (TP +FP) #precision 0.7589286
+TP / (TP+FN) #recall 0.4497354
+2*((TP / (TP +FP))*(TP / (TP+FN)))/((TP / (TP +FP))+(TP / (TP+FN)))#F1 Score 0.5647841
+
+#predicted prob vs predictors
+pl1 <- ggplot(p1_cl_testing_cm.copy,aes(x = days_duration_requested_stay, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl2 <- ggplot(p1_cl_testing_cm.copy,aes(x = m_guests, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl3 <- ggplot(p1_cl_testing_cm.copy,aes(x = days_from_first_contact_to_first_checkin, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl4 <- ggplot(p1_cl_testing_cm.copy,aes(x = dow_checkin, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl5 <- ggplot(p1_cl_testing_cm.copy,aes(x = moy_checkin, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+#pl6 <- ggplot(p1_cl_testing_cm.copy,aes(x = contact_channel_first, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl7 <- ggplot(p1_cl_testing_cm.copy,aes(x = guest_words_in_profile, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl8 <- ggplot(p1_cl_testing_cm.copy,aes(x = guest_user_stage_first, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl9 <- ggplot(p1_cl_testing_cm.copy,aes(x = host_words_in_profile, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl10 <- ggplot(p1_cl_testing_cm.copy,aes(x = room_type, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl11 <- ggplot(p1_cl_testing_cm.copy,aes(x = total_reviews, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl12 <- ggplot(p1_cl_testing_cm.copy,aes(x = m_interactions, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl13 <- ggplot(p1_cl_testing_cm.copy,aes(x = minute_from_first_reply_to_accept, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl14 <- ggplot(p1_cl_testing_cm.copy,aes(x = minute_from_first_touch_to_reply, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+
+fig <- ggarrange(pl1,pl2,pl3,pl4,pl5,pl7,pl8,pl9,pl10,pl11,pl12,pl13,pl14 + rremove("x.text"), label.y = "Prob of booking",
+                 #labels = c("A", "B", "C"),
+                 ncol = 2, nrow = 7)
+annotate_figure(fig,
+                top = text_grob("Predicted probability of successful booking from 'contact me' channel", color = "red", face = "bold", size = 25),
+)
+
+
+
+
+
+
+#decision tree
+#with only a handful of predictors coming out significant from log reg above
+cl_tree <- ctree(Resulted_Successful_Booking ~ ., data = p1_cl_training_cm[c("Resulted_Successful_Booking","days_duration_requested_stay","m_guests",
+                                                                             "days_from_first_contact_to_first_checkin","dow_checkin",
+                                                                             "moy_checkin","room_type","host_words_in_profile")])
+plot(cl_tree)
+
+#cl_tree2 <- ctree(Resulted_Successful_Booking ~ ., data = p1_cl[c("Resulted_Successful_Booking","days_duration_requested_stay","m_guests",
+#                                                "days_from_first_contact_to_first_checkin")])
+#plot(cl_tree2, gp = gpar(fontsize = 8))
+
+#cl_tree2_rp <- rpart(Resulted_Successful_Booking ~ ., method="class", data = p1_cl[c("Resulted_Successful_Booking","days_duration_requested_stay","m_guests",
+#                                                 "days_from_first_contact_to_first_checkin")])
+#rpart.plot(cl_tree2_rp)
+#printcp(cl_tree2_rp) # display the results 
+#plotcp(cl_tree2_rp) # visualize cross-validation results 
+#summary(cl_tree2_rp) # detailed summary of splits
+
+
+
+
+
+
+# Random Forest
+p1_cl_training_cm_rf <- p1_cl_training_cm[, colSums(is.na(p1_cl_training_cm)) == 0]
+p1_cl_training_rf_fit <- randomForest(Resulted_Successful_Booking ~ .,  data=p1_cl_training_cm_rf)
+print(p1_cl_training_rf_fit) # view results 
+par(ps = 15, cex = 1, cex.main = 1)
+varImpPlot(p1_cl_training_rf_fit, pch = 20, main = "Random Forest - Importance of Variables on succesful Booking - contact me")
+
+# Predict rf
+predictions.rf <- predict(p1_cl_training_rf_fit, newdata = p1_cl_testing_cm[, !(colnames(p1_cl_testing_cm) %in% c("Resulted_Successful_Booking"))])
+real_cls <- p1_cl_testing_cm$Resulted_Successful_Booking
+confusionMatrix(predictions.rf,real_cls)
+
+#######################################################################################################################################
+
+
+
+
+###book it channel
+#EDA
+
+#barplots for factor vars
+ggplot(data = p1_cl_bi,aes(x=m_guests,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_bi,aes(x=m_guests,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_bi,aes(x=dow_checkin,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_bi,aes(x=dow_checkin,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_bi,aes(x=moy_checkin,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_bi,aes(x=moy_checkin,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_bi,aes(x=contact_channel_first,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_bi,aes(x=contact_channel_first,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_bi,aes(x=guest_user_stage_first,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_bi,aes(x=guest_user_stage_first,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+#ggplot(data = p1_cl_bi,aes(x=host_country,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_bi,aes(x=host_country,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+ggplot(data = p1_cl_bi,aes(x=room_type,fill=Resulted_Successful_Booking))+geom_bar()
+#ggplot(data = p1_cl_bi,aes(x=room_type,fill=Resulted_Successful_Booking))+geom_bar(position = "fill")
+
+
+#boxplots for numeric vars against target
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=days_duration_requested_stay,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,30)
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=m_guests,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,30)
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=days_from_first_contact_to_first_checkin,fill=Resulted_Successful_Booking))+geom_boxplot()
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=guest_words_in_profile,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,100)
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=host_words_in_profile,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,100)
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=total_reviews,fill=Resulted_Successful_Booking))+geom_boxplot()
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=m_interactions,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,100)
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=minute_from_first_reply_to_accept,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,10080) #7days
+ggplot(data = p1_cl_bi,aes(x=Resulted_Successful_Booking,y=minute_from_first_touch_to_reply,fill=Resulted_Successful_Booking))+geom_boxplot()+ylim(1,5040)
+
+
+
+
+
+### classification:
+
+
+#logistic regression
+cl_m1 = glm(Resulted_Successful_Booking ~ .,  family = binomial(link = 'logit'), data = p1_cl_training_bi)
+summary(cl_m1)
+
+#top 10 by coeficients (increase in 1 unit's impact on the odds of an inquiry being a successful booking)
+sort(exp(coef(cl_m1)),decreasing = T)[1:10]
+
+#predict probability
+cl_m1.prob = predict(cl_m1, p1_cl_testing_bi, type="response")
+p1_cl_testing_bi.copy <- p1_cl_testing_bi
+p1_cl_testing_bi.copy$log_reg_prob = cl_m1.prob
+
+#predict class
+cl_m1.pred_class <- ifelse(cl_m1.prob > 0.5,1,0)
+p1_cl_testing_bi.copy$cl_m1.pred_class = cl_m1.pred_class
+
+
+#model performance
+#confusion matrix
+bi = data.frame(confusion_matrix(cl_m1,p1_cl_testing_bi.copy))
+TP = bi[2,2]
+FP = bi[1,2]
+FN = bi[2,1]
+TN = bi[1,1]
+TOTAL = bi[3,3]
+
+(TP + TN) / TOTAL #overall accuracy 0.9465909
+TP / (TP +FP) #precision 0.9490683
+TP / (TP+FN) #recall 0.99
+2*((TP / (TP +FP))*(TP / (TP+FN)))/((TP / (TP +FP))+(TP / (TP+FN)))#F1 Score 0.97
+
+#predicted prob vs predictors
+pl1 <- ggplot(p1_cl_testing_bi.copy,aes(x = days_duration_requested_stay, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl2 <- ggplot(p1_cl_testing_bi.copy,aes(x = m_guests, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl3 <- ggplot(p1_cl_testing_bi.copy,aes(x = days_from_first_contact_to_first_checkin, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl4 <- ggplot(p1_cl_testing_bi.copy,aes(x = dow_checkin, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl5 <- ggplot(p1_cl_testing_bi.copy,aes(x = moy_checkin, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+#pl6 <- ggplot(p1_cl_testing_bi.copy,aes(x = contact_channel_first, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl7 <- ggplot(p1_cl_testing_bi.copy,aes(x = guest_words_in_profile, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl8 <- ggplot(p1_cl_testing_bi.copy,aes(x = guest_user_stage_first, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl9 <- ggplot(p1_cl_testing_bi.copy,aes(x = host_words_in_profile, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl10 <- ggplot(p1_cl_testing_bi.copy,aes(x = room_type, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl11 <- ggplot(p1_cl_testing_bi.copy,aes(x = total_reviews, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl12 <- ggplot(p1_cl_testing_bi.copy,aes(x = m_interactions, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl13 <- ggplot(p1_cl_testing_bi.copy,aes(x = minute_from_first_reply_to_accept, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+pl14 <- ggplot(p1_cl_testing_bi.copy,aes(x = minute_from_first_touch_to_reply, y = cl_m1.prob)) + geom_point(color = "#00AFBB", size = 2, shape = 23) + geom_smooth()
+
+fig <- ggarrange(pl1,pl2,pl3,pl4,pl5,pl7,pl8,pl9,pl10,pl11,pl12,pl13,pl14 + rremove("x.text"), label.y = "Prob of booking",
+                 #labels = c("A", "B", "C"),
+                 ncol = 2, nrow = 7)
+annotate_figure(fig,
+                top = text_grob("Predicted probability of successful booking from 'book it' channel", color = "red", face = "bold", size = 25),
+)
+
+
+
+
+
+
+#decision tree
+#with only a handful of predictors coming out significant from log reg above
+cl_tree <- ctree(Resulted_Successful_Booking ~ ., data = p1_cl_training_bi[c("Resulted_Successful_Booking","days_duration_requested_stay","m_guests",
+                                                                             "days_from_first_contact_to_first_checkin","dow_checkin",
+                                                                             "moy_checkin","room_type","host_words_in_profile")])
+plot(cl_tree)
+
+#cl_tree2 <- ctree(Resulted_Successful_Booking ~ ., data = p1_cl[c("Resulted_Successful_Booking","days_duration_requested_stay","m_guests",
+#                                                "days_from_first_contact_to_first_checkin")])
+#plot(cl_tree2, gp = gpar(fontsize = 8))
+
+#cl_tree2_rp <- rpart(Resulted_Successful_Booking ~ ., method="class", data = p1_cl[c("Resulted_Successful_Booking","days_duration_requested_stay","m_guests",
+#                                                 "days_from_first_contact_to_first_checkin")])
+#rpart.plot(cl_tree2_rp)
+#printcp(cl_tree2_rp) # display the results 
+#plotcp(cl_tree2_rp) # visualize cross-validation results 
+#summary(cl_tree2_rp) # detailed summary of splits
+
+
+
+# Random Forest
+p1_cl_training_bi_rf <- p1_cl_training_bi[, colSums(is.na(p1_cl_training_bi)) == 0]
+p1_cl_training_rf_fit <- randomForest(Resulted_Successful_Booking ~ .,  data=p1_cl_training_bi_rf)
+print(p1_cl_training_rf_fit) # view results 
+par(ps = 15, cex = 1, cex.main = 1)
+varImpPlot(p1_cl_training_rf_fit, pch = 20, main = "Random Forest - Importance of Variables on succesful Booking - Book It channel")
+
+# Predict rf
+predictions.rf <- predict(p1_cl_training_rf_fit, newdata = p1_cl_testing_bi.copy[, !(colnames(p1_cl_testing_bi.copy) %in% c("Resulted_Successful_Booking"))])
+real_cls <- p1_cl_testing_bi.copy$Resulted_Successful_Booking
+confusionMatrix(predictions.rf,real_cls)
+
+
+
+
+
+
+
+
+
+temp1<-data.frame(sqldf("select listing_neighborhood, count(*) as count_rows from p1 group by listing_neighborhood"))
+temp1[order(temp1$count_rows),]
+
+##################################################################################################################################################################
+
+#Clustering for inquries in Rio de Janeiro
+p1_clustering_pre <- filter(p1, listing_neighborhood == "Rio Comprido")
+p1_clustering <- p1[, !(colnames(p1) %in% c("Resulted_Successful_Booking","target_num","host_country","listing_neighborhood",
+                                            "dow_checkin","moy_checkin","contact_channel_first"))]
+listing_neighborhood == "Rio Comprido"
+
+dis_vars = c("dow_checkin","moy_checkin","guest_country","guest_user_stage_first","host_country","room_type","listing_neighborhood", "Resulted_Successful_Booking","contact_channel_first")
+p1[dis_vars] <- lapply(p1[dis_vars],as.factor)
+
+#create separate dfs, one for classification and one for regression
+p1_cl <- p1[, !(colnames(p1) %in% c("target_num","guest_country","host_country","listing_neighborhood"))]
+
+p1_cl_cm <- filter(p1_cl, contact_channel_first == "contact_me")
