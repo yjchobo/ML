@@ -1,0 +1,167 @@
+---
+title: "Density Estimation"
+author: "YC"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+
+```{r getready, echo=FALSE, include=FALSE}
+packages.required = c("ggplot2","dplyr","datasets","KernSmooth","HSAUR","mclust","flexmix","boot")
+#install.packages(packages.required)
+lapply(packages.required, library, character.only = TRUE)
+
+#`echo = FALSE` Prevents code from printing
+```
+
+## Density estimates of the geyser eruption data imposed on a histogram of the data.
+Waiting time between eruptions and the duration of the eruption for the Old Faithful geyser in Yellowstone National Park, Wyoming, USA.
+
+```{r echo=FALSE}
+data("faithful", package = "datasets")
+x <- faithful$waiting
+head(faithful)
+layout(matrix(1:3, ncol = 3))
+hist(x, xlab = "Waiting times (in min.)", ylab = "Frequency",probability = TRUE, main = "Gaussian kernel",border = "gray")
+lines(density(x, width = 12), lwd = 2)
+rug(x)
+hist(x, xlab = "Waiting times (in min.)", ylab = "Frequency",
+probability = TRUE, main = "Rectangular kernel",border = "gray")
+lines(density(x, width = 12, window = "rectangular"),lwd = 2)
+rug(x)
+hist(x, xlab = "Waiting times (in min.)", ylab = "Frequency",
+probability = TRUE, main = "Triangular kernel",border = "gray")
+lines(density(x, width = 12, window = "triangular"),lwd = 2)
+rug(x)
+```
+
+## The bivariate density estimate
+Energy output and surface termperature for Star Cluster CYG OB1.
+- logst: log survface termperature of the star.
+- logli: log light intensity of the star.
+```{r}
+data("CYGOB1", package = "HSAUR")
+head(CYGOB1)
+ggplot(CYGOB1, aes(x=logst, y=logli)) + geom_point(size=3)
+CYGOB1d <- bkde2D(CYGOB1, bandwidth = sapply(CYGOB1,dpik)) #Gaussian
+CYGOB1d2 <- bkde2D(CYGOB1, bandwidth = sapply(CYGOB1,dpik, kernel = "box")) #box
+CYGOB1d3 <- bkde2D(CYGOB1, bandwidth = sapply(CYGOB1,dpik,kernel = "epanech")) #centered beta(2,2) kernel
+CYGOB1d4 <- bkde2D(CYGOB1, bandwidth = sapply(CYGOB1,dpik,kernel = "biweight")) #centred beta(3,3) density 
+CYGOB1d5 <- bkde2D(CYGOB1, bandwidth = sapply(CYGOB1,dpik,kernel = "biweight")) #centred beta(4,4)
+contour(x = CYGOB1d$x1, y = CYGOB1d$x2, z = CYGOB1d$fhat, xlab = "log surface temperature", ylab = "log light intensity")
+contour(x = CYGOB1d2$x1, y = CYGOB1d2$x2, z = CYGOB1d2$fhat, xlab = "log surface temperature", ylab = "log light intensity")
+contour(x = CYGOB1d3$x1, y = CYGOB1d3$x2, z = CYGOB1d3$fhat, xlab = "log surface temperature", ylab = "log light intensity")
+contour(x = CYGOB1d4$x1, y = CYGOB1d4$x2, z = CYGOB1d4$fhat, xlab = "log surface temperature", ylab = "log light intensity")
+contour(x = CYGOB1d5$x1, y = CYGOB1d5$x2, z = CYGOB1d5$fhat, xlab = "log surface temperature", ylab = "log light intensity") #2d contour plot
+
+#3d contour
+persp(x = CYGOB1d$x1, y = CYGOB1d$x2, z = CYGOB1d$fhat, xlab = "log surface temperature", ylab = "log light intensity",
+zlab = "estimated density", theta = -35, axes = TRUE, box = TRUE, col = "yellow")
+```
+
+### Model-based clustering based on parameterized finite Gaussian mixture models. Models are estimated by EM algorithm initialized by hierarchical model-based agglomerative clustering. The optimal model is then selected according to BIC.
+A Bayesian information criterion (BIC) is applied to choose the form of the mixture model:
+
+```{r}
+mc <- Mclust(faithful$waiting)
+mc
+```
+
+and the estimated means are
+
+```{r}
+mc$parameters$mean
+```
+
+with estimated standard deviation (found to be equal within both groups)
+
+```{r}
+sqrt(mc$parameters$variance$sigmasq)
+```
+
+The proportion is p_hat = 0.36. The second package is called flexmix whose functionality is described by Leisch (2004). A mixture of two normals can be fitted using
+
+```{r}
+fl <- flexmix(waiting ~ 1, data = faithful, k = 2)
+parameters(fl, component = 1)
+parameters(fl, component = 2)
+```
+
+We can get standard errors for the five parameter estimates by using a bootstrap approach (see Efron and Tibshirani, 1993). The original data are slightly perturbed by drawing n out of n observations with replacement and those artificial replications of the original data are called bootstrap samples. Now, we can fit the mixture for each bootstrap sample and assess the variability of the estimates, for example using confidence intervals. Some suitable R code based on the Mclust function follows. First, we define a function that, for a bootstrap sample indx, fits a two-component mixture model and returns p_hat and the estimated means (note that we need to make sure that we always get an estimate of p, not 1 − p):
+
+```{r}
+logL <- function(param, x) {
+                            d1 <- dnorm(x, mean = param[2], sd = param[3])
+                            d2 <- dnorm(x, mean = param[4], sd = param[5])
+                            -sum(log(param[1] * d1 + (1 - param[1]) * d2))
+}
+startparam <- c(p = 0.5, mu1 = 50, sd1 = 3, mu2 = 80, sd2 = 3)
+opp <- optim(startparam, logL, x = faithful$waiting, method = "L-BFGS-B", lower = c(0.01, rep(1,4)), upper = c(0.99, rep(200, 4)))
+
+
+
+fit <- function(x, indx) {
+                            a <- Mclust(x[indx], minG = 2, maxG = 2)$parameters
+                            if (a$pro[1] < 0.5)
+                            return(c(p = a$pro[1], mu1 = a$mean[1], mu2 = a$mean[2]))
+                            return(c(p = 1 - a$pro[1], mu1 = a$mean[2], mu2 = a$mean[1]))
+}
+
+opar <- as.list(opp$par)
+rx <- seq(from = 40, to = 110, by = 0.1)
+d1 <- dnorm(rx, mean = opar$mu1, sd = opar$sd1)
+d2 <- dnorm(rx, mean = opar$mu2, sd = opar$sd2)
+f <- opar$p * d1 + (1 - opar$p) * d2
+hist(x, probability = TRUE, xlab = "Waiting times (in min.)", border = "gray", xlim = range(rx), ylim = c(0, 0.06), main = "")
+lines(rx, f, lwd = 2)
+lines(rx, dnorm(rx, mean = mean(x), sd = sd(x)), lty = 2, lwd = 2)
+legend(50, 0.06, legend = c("Fitted two-component mixture density", "Fitted single normal density"), lty = 1:2, bty = "n")
+```
+
+The function fit can now be fed into the boot function for bootstrapping (here 1000 bootstrap samples are drawn)
+
+```{r}
+bootpara <- boot(faithful$waiting, fit, R = 1000)
+```
+
+We assess the variability of our estimates p_hat by means of adjusted bootstrap percentile (BCa) confidence intervals, which for p_hat can be obtained from
+
+```{r}
+boot.ci(bootpara, type = "bca", index = 1)
+```
+
+We see that there is a reasonable variability in the mixture model, however, the means in the two components are rather stable, as can be seen from
+
+```{r}
+boot.ci(bootpara, type = "bca", index = 2)
+```
+
+for ˆµ1 and for ˆµ2 from
+
+```{r}
+boot.ci(bootpara, type = "bca", index = 3)
+```
+
+Finally, we show a graphical representation of both the bootstrap distribution of the mean estimates and the corresponding confidence intervals. For convenience, we define a function for plotting, namely
+
+```{r}
+bootplot <- function(b, index, main = "") {
+dens <- density(b$t[, index])
+ci <- boot.ci(b, type = "bca", index = index)$bca[4:5]
+est <- b$t0[index]
+plot(dens, main = main)
+y <- max(dens$y)/10
+segments(ci[1], y, ci[2], y, lty = 2)
+points(ci[1], y, pch = "(")
+points(ci[2], y, pch = ")")
+points(est, y, pch = 19)
+}
+
+
+layout(matrix(1:2, ncol = 2))
+bootplot(bootpara, 2, main = expression(mu[1]))
+bootplot(bootpara, 3, main = expression(mu[2]))
+
+```
