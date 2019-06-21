@@ -1,0 +1,27 @@
+Team Description
+Our Product team advocates for our users and our business, setting the vision for our growing family of products. We use data, research, strategy, and empathy to guide multidisciplinary teams toward a common goal, balancing diverse perspectives and empowering our teams to do great work. As we scale globally, there’s plenty of space for you to grow alongside us and simplify life for millions of people around the world in team that always focuses on we, not I, and creates delightful products that are worthy of trust.
+
+ 
+
+Role Description
+Our Ecosystem team leverages Dropbox’s API platform to develop integrations with major third party partners and help the hundreds of thousands registered developers build on top of Dropbox. As a Product Analyst for this team, you will be responsible for helping Dropbox build integrations with premier partners, including analysis that will help inform Dropbox’s long-term API platform strategy. These decisions can have material user impact, and your work will enable data-driven decision-making for Engineering, Product, and Design teams shipping products across many of Dropbox’s platforms.
+
+We are looking for a Product Analyst who can jump in and make an impact quickly. Product Analysts at Dropbox can expect to set up and analyze A/B tests for new experimental features, generate and size opportunities to prioritize features, and define key performance metrics for the team. As this small team continues to grow there's also an opportunity to help shape and guide its expansion through mentorship and advocacy across the company. We hope you'll join us!
+
+Responsibilities
+You will work with engineering to implement, document, validate, and monitor our logging and metrics
+You will craft simple, dependable data pipelines and automated reporting to surface metrics
+You will identify, translate, prioritize, and inform important product questions with data
+You will explore data to find actionable insights and make product recommendations through funnels, cohort analyses, long-term trends, user segmentation, regression models, and more
+You will set up up, analyze, and promote good practices for multivariate experiments
+You will synthesize and communicate insights during the product development process
+You will empower and guide others to work effectively and efficiently with data are part of your role
+You will work towards creating a data-informed culture at Dropbox
+Requirements
+Degree in Math, Physics, Statistics, Economics, Computer Science, or other quantitative fields preferred
+2+ years of experience doing quantitative analysis for a technology company
+Fluency in SQL, as well as a deep understanding of statistical analysis, experiment design, and common pitfalls of data analysis
+You are a self-starter: You drive projects with minimal guidance and focus on high impact work
+Strong communicator: You effectively synthesize, visualize, and communicate your ideas to others
+You are a critical thinker: You are thoughtful, self-aware, and use available evidence to make decisions
+You work effectively with teammates and win credibility quickly
