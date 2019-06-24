@@ -1,0 +1,46 @@
+---
+title: "Longitudinal Analysis"
+author: "YC"
+output: html_document
+---
+
+```{r setup, include=FALSE, echo=FALSE, warning=FALSE}
+packages.required = c("sqldf","ggplot2","lubridate","nlme")
+#install.packages(packages.required)
+lapply(packages.required, library, character.only = TRUE)
+data(Orthodont)
+
+```
+
+### Orthodontic growth data, Example from Pinheiro and Bates (2000)
+
+Investigators at the University of North Carolina Dental School followed the growth of 27 children (16 males, 11 females) from age 8 until age 14. Every two years they measured the distance between the pituitary and the pterygomaxillary fissure, two points that are easily identified on xray exposures of the side of the head.
+
+what data looks like:
+
+```{r, echo=FALSE}
+head(Orthodont)
+```
+
+Questions we will answer are the followings:
+   
+  * Is there an age effect on growth?
+  * Is there a gender difference?
+  * Is growth different over time in both sexes (Is there an interaction effect?)?
+  * Is an Ordinary Least Squares good enough?
+
+
+**Let's examine the plot** :
+
+```{r, echo=FALSE}
+plot(Orthodont)
+```
+
+Let's first start with the simple linear regression model. **There are M subjects and n_i measurements per subject**
+  
+$$y_{i,j} = \beta_1+\beta_2x_{i,j}+\epsilon_{i,j} $$
+
+$$i = 1,...,M(M=27)$$
+$$j = 1,...,n_i(n_i=4)$$
+$$\epsilon_{i,j} \sim \textit{N}(0,\sigma^2)$$
+

@@ -11,3 +11,5 @@
 6. Machine Learning Applications on Marketing https://lnkd.in/fUDGAQW
 
 7. Machine Learning Applications on Retail https://lnkd.in/fihPTJf
+
+Longitudinal analysis (R): https://www.overleaf.com/learn/latex/Bold,_italics_and_underlining
